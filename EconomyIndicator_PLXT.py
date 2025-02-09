@@ -10,13 +10,14 @@ from typing import Optional, Dict
 from datetime import datetime
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.engine.base import Engine
+from sqlalchemy.dialects.postgresql import insert
 from contextlib import contextmanager
 import os
 import json
-from sqlalchemy.dialects.postgresql import insert
+import matplotlib.pyplot as plt
 
 Base = declarative_base()
 
@@ -140,30 +141,39 @@ class JOLTSDataFetcher:
             return None
 
     def _parse_response(self, raw_data: Dict) -> pd.DataFrame:
-        """Transform API response into structured data"""
+        """Parses BLS API response with robust error handling"""
+        df = pd.DataFrame(columns=['metric_date', 'job_openings'])  # Initialize empty DF
+    
         try:
-            if raw_data.get('status') != 'REQUEST_SUCCEEDED':
-                error_msg = raw_data.get('message', ['Unknown error'])[0]
+            if not raw_data or raw_data.get('status') != 'REQUEST_SUCCEEDED':
+                error_msg = raw_data.get('message', ['Unknown error'])[0] if raw_data else 'Empty response'
                 logging.error(f"BLS API Error: {error_msg}")
-                return None
+                return df
 
-            series_data = raw_data.get('Results', {}).get('series', [{}])[0].get('data', [])
+            series_list = raw_data.get('Results', {}).get('series', [])
+            if not series_list:
+                logging.warning("No series data found in API response")
+                return df
+
+            series_data = series_list[0].get('data', [])
+            if not series_data:
+                logging.info("No records found for given parameters")
+                return df
+
+            # Create DataFrame with validation
             df = pd.DataFrame(series_data).assign(
                 metric_date=lambda x: pd.to_datetime(
                     x['year'] + '-' + x['period'].str[1:] + '-01',
                     errors='coerce'
                 ),
                 job_openings=lambda x: pd.to_numeric(x['value'], errors='coerce')
-            )
+            ).dropna()
 
-            if df['job_openings'].isnull().mean() > 0.2:
-                logging.warning("High null rate in job openings data")
+        except (KeyError, IndexError, AttributeError) as e:
+            logging.error(f"Data parsing failed: {str(e)}")
+        
+        return df[['metric_date', 'job_openings']]
 
-            return df[['metric_date', 'job_openings']].dropna()
-
-        except KeyError as e:
-            logging.error(f"Data structure mismatch: {e}")
-            return None
 
 class DataPipelinePlugin:
     """Extensible data processing interface"""
@@ -175,22 +185,74 @@ class DataPipelinePlugin:
 
 if __name__ == "__main__":
     db_mgr = DatabaseManager()
-    db_mgr.initialize_db()
+    try:
+        db_mgr.initialize_db()
+    except Exception as e:
+        logging.critical(f"Database initialization failed: {e}")
+        exit(1)    
+    
     fetcher = JOLTSDataFetcher()
 
-    with db_mgr.session_scope() as session:
-        raw_data = fetcher.fetch_data()
-        if raw_data is not None:
-            stmt = insert(EconomicData.__table__).values(
-                raw_data.to_dict(orient='records')
-            ).on_conflict_do_nothing(
-                index_elements=['metric_date']
-            )
-            
-            try:
-                result = session.execute(stmt)
-                logging.info(f"Inserted {result.rowcount} new records")
-            except Exception as e:
-                logging.error(f"Insert error: {str(e)}")
-                session.rollback()
+    try:
+        with db_mgr.session_scope() as session:
+            # Data insertion
+            raw_data = fetcher.fetch_data()
+            if raw_data is not None:
+                df = pd.DataFrame()  # Initialize here for scope
+                try:
+                    stmt = insert(EconomicData.__table__).values(
+                        raw_data.to_dict(orient='records')
+                    ).on_conflict_do_nothing(
+                        index_elements=['metric_date']
+                    )
+                    result = session.execute(stmt)
+                    logging.info(f"Inserted {result.rowcount} new records")
+
+                    # Query and display data
+                    df = pd.read_sql(
+                        """SELECT * FROM economic_metrics 
+                           ORDER BY metric_date DESC LIMIT 5""",
+                        con=session.connection()
+                    )
+                except Exception as e:
+                    logging.error(f"Database operation failed: {e}")
+
+                # Display latest records from SQLAlchemy query
+                latest_data = session.query(EconomicData).order_by(
+                    EconomicData.metric_date.desc()
+                ).limit(5).all()
+                
+                if latest_data:
+                    print("\nLatest 5 JOLTS Records:")
+                    for record in latest_data:
+                        print(f"{record.metric_date.date()}: {record.job_openings}")
+                else:
+                    logging.info("No records found in database")
+
+                # Visualization handling
+                if not df.empty:
+                    try:
+                        df['job_openings'] = pd.to_numeric(df['job_openings'], errors='coerce')
+                        df = df.dropna(subset=['job_openings'])
+                        
+                        if not df.empty:
+                            print("\nRecent JOLTS Data:")
+                            print(df[['metric_date', 'job_openings']].head(10))
+                            
+                            ax = df.set_index('metric_date')['job_openings'].plot(
+                                title='30-Day JOLTS Trend',
+                                figsize=(12, 6),
+                                grid=True,
+                                style='o-'
+                            )
+                            ax.set_ylabel('Job Openings')
+                            plt.tight_layout()
+                            plt.show()
+                        else:
+                            logging.info("No numeric data available for visualization")
+                    except Exception as e:
+                        logging.error(f"Visualization error: {e}")
+
+    except Exception as e:
+        logging.error(f"Main execution error: {e}")
 

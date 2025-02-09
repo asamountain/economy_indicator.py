@@ -53,3 +53,17 @@ DETAIL:  Key (metric_date)=(2024-12-01 00:00:00) already exists.
 (Background on this error at: https://sqlalche.me/e/20/e3q8)
 2025-02-09 20:45:10,801 - INFO - Database initialized successfully.
 2025-02-09 20:45:14,060 - INFO - Inserted 0 new records
+2025-02-09 20:48:59,649 - INFO - Database initialized successfully.
+2025-02-09 20:48:59,697 - ERROR - Database transaction error: no numeric data to plot
+2025-02-09 20:57:36,466 - INFO - Database initialized successfully.
+2025-02-09 20:57:36,478 - INFO - No records found in the last 30 days
+2025-02-09 20:58:10,063 - INFO - Database initialized successfully.
+2025-02-09 20:58:10,063 - ERROR - Database transaction error: name 'func' is not defined
+2025-02-09 21:03:22,846 - INFO - Database initialized successfully.
+2025-02-09 21:03:22,853 - INFO - Total records in database: 120
+2025-02-09 21:03:22,855 - ERROR - Database transaction error: name 'df' is not defined
+2025-02-09 21:16:00,983 - INFO - Database initialized successfully.
+2025-02-09 21:16:03,531 - ERROR - Database transaction error: name 'series_data' is not defined
+2025-02-09 21:16:03,532 - ERROR - Main execution error: name 'series_data' is not defined
+2025-02-09 21:41:48,684 - INFO - Database initialized successfully.
+2025-02-09 21:41:51,264 - INFO - Inserted 0 new records
