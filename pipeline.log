@@ -1,0 +1,34 @@
+2025-02-09 19:01:50,190 - ERROR - Database connection failed: No module named 'psycopg2'
+2025-02-09 19:06:20,186 - ERROR - Error initializing database: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused
+	Is the server running on that host and accepting TCP/IP connections?
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-02-09 19:10:53,321 - ERROR - Error initializing database: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  role "fallback_user" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-02-09 19:14:59,247 - ERROR - Error initializing database: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  database "econ_data" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-02-09 19:15:49,666 - INFO - Database initialized successfully.
+2025-02-09 19:18:00,743 - INFO - Database initialized successfully.
+2025-02-09 19:25:03,193 - INFO - Database initialized successfully.
+2025-02-09 19:25:10,507 - INFO - Database initialized successfully.
+2025-02-09 19:25:10,507 - ERROR - Database transaction error: name 'requests' is not defined
+2025-02-09 19:25:21,799 - INFO - Database initialized successfully.
+2025-02-09 19:25:24,657 - ERROR - Data parsing error: 'series'
+2025-02-09 19:30:16,744 - INFO - Database initialized successfully.
+2025-02-09 19:30:16,745 - CRITICAL - Missing BLS API key in configuration
+2025-02-09 19:34:37,966 - INFO - Database initialized successfully.
+2025-02-09 19:34:37,966 - CRITICAL - Missing BLS API key in configuration
+2025-02-09 19:39:29,951 - INFO - Database initialized successfully.
+2025-02-09 19:39:29,951 - ERROR - Missing BLS_JOLTS_KEY in config.json
+2025-02-09 19:40:36,174 - INFO - Database initialized successfully.
+2025-02-09 19:40:36,175 - ERROR - Missing BLS_JOLTS_KEY in config.json
+2025-02-09 19:41:00,701 - INFO - Database initialized successfully.
+2025-02-09 19:41:00,702 - CRITICAL - Missing BLS API key in configuration
+2025-02-09 19:41:19,941 - INFO - Database initialized successfully.
+2025-02-09 19:41:22,078 - ERROR - Database transaction error: cannot access local variable 'df' where it is not associated with a value
+2025-02-09 19:43:22,615 - INFO - Database initialized successfully.
+2025-02-09 19:43:24,077 - INFO - Inserted 120 new records
