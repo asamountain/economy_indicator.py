@@ -18,6 +18,12 @@ from sqlalchemy.engine.base import Engine
 from contextlib import contextmanager
 import os
 import json
+# For PostgreSQL, modify the insert statement:
+from sqlalchemy.dialects.postgresql import insert
+
+Base = declarative_base()
+
+
 
 # Security Configuration (Add right after imports)
 DB_CONFIG = {
@@ -35,7 +41,6 @@ logging.basicConfig(
     handlers=[logging.FileHandler('pipeline.log'), logging.StreamHandler()]
 )
 
-Base = declarative_base()
 
 class EconomicData(Base):
     """Data storage foundation following Charlie Munger's latticework model"""
@@ -99,12 +104,19 @@ class DatabaseManager:
             logging.info(f"API Quota: {remaining} requests remaining")
 
 
+# Security Configuration (Add after DB_URL)
+BLS_API_KEY = os.getenv("BLS_JOLTS_KEY")
+if not BLS_API_KEY:
+    raise ValueError("Set BLS_JOLTS_KEY environment variable")
+
+
 class JOLTSDataFetcher:
     """Enhanced with BLS API v2.4 compliance and error resilience"""
-    def __init__(self, api_config: Dict):
+    def __init__(self):  # Remove api_config parameter
         self.base_url = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
-        self.api_key = api_config.get('BLS_JOLTS_KEY') if api_config else None
         self.headers = {'Content-type': 'application/json'}
+        self.api_key = BLS_API_KEY  # Use environment variable directly
+
         # Validate API key presence
         if not self.api_key:
             logging.critical("Missing BLS API key in configuration")
@@ -194,36 +206,28 @@ class DataPipelinePlugin:
 
 # Implementation
 if __name__ == "__main__":
-    # Initialize with Robert Kiyosaki's simplicity principle
+    # Initialize database manager
     db_mgr = DatabaseManager()
-
     db_mgr.initialize_db()
 
-    def load_config():
-        try:
-            with open('./config.json', 'r') as file:
-                config = json.load(file)
-                # Directly return the API key from root of config
-                return {"BLS_JOLTS_KEY": config["BLS_JOLTS_KEY"]}
-        except KeyError:
-            logging.error("Missing BLS_JOLTS_KEY in config.json")
-            raise
-        except FileNotFoundError:
-            logging.error("config.json file not found in project root")
-            raise
+    # Initialize fetcher with environment variable
+    fetcher = JOLTSDataFetcher()  # No config parameter needed
 
-
-    fetcher = JOLTSDataFetcher(api_config=load_config())
-        
     with db_mgr.session_scope() as session:
-        raw_data = fetcher.fetch_data()
-        if raw_data is not None:
-            existing_dates = session.query(EconomicData.metric_date).all()
-            new_data = raw_data[~raw_data['metric_date'].isin(existing_dates)]
+            # Use SQLAlchemy Core insert with conflict handling
+            from sqlalchemy.dialects.postgresql import insert
             
-            session.bulk_insert_mappings(
-                EconomicData,
-                new_data.to_dict(orient='records')
-            )
-            logging.info(f"Inserted {len(new_data)} new records")
-        pass
+            raw_data = fetcher.fetch_data()
+            if raw_data is not None:
+                stmt = insert(EconomicData.__table__).values(
+                    raw_data.to_dict(orient='records')
+                ).on_conflict_do_nothing(
+                    index_elements=['metric_date']
+                )
+                
+                try:
+                    result = session.execute(stmt)
+                    logging.info(f"Inserted {result.rowcount} new records")
+                except Exception as e:
+                    logging.error(f"Insert error: {str(e)}")
+                    session.rollback()
