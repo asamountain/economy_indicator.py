@@ -1,7 +1,6 @@
 """
 JOLTS Data Pipeline v2.0
 Error-resilient architecture with expansion capabilities
-Inspired by Warren Buffett's margin of safety principle
 """
 
 # Core Infrastructure
@@ -11,26 +10,22 @@ from typing import Optional, Dict
 from datetime import datetime
 import pandas as pd
 import sqlalchemy as sa
-from sqlalchemy import create_engine  # Add missing import
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.engine.base import Engine
-# Add this import at the top of your file
 from contextlib import contextmanager
 import os
 import json
-# For PostgreSQL, modify the insert statement:
 from sqlalchemy.dialects.postgresql import insert
 
 Base = declarative_base()
 
-
-
-# Security Configuration (Add right after imports)
+# Database Configuration
 DB_CONFIG = {
-    "user": os.getenv('DB_USER', 'fallback_user'),
-    "pass": os.getenv('DB_PASS', 'complex_default'),
-    "host": os.getenv('DB_HOST', 'localhost'),
-    "name": os.getenv('DB_NAME', 'economy_indicator_db')
+    "user": os.getenv('DB_USER'),
+    "pass": os.getenv('DB_PASS'),
+    "host": os.getenv('DB_HOST'),
+    "name": os.getenv('DB_NAME')
 }
 DB_URL = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['pass']}@{DB_CONFIG['host']}/{DB_CONFIG['name']}"
 
@@ -41,9 +36,8 @@ logging.basicConfig(
     handlers=[logging.FileHandler('pipeline.log'), logging.StreamHandler()]
 )
 
-
 class EconomicData(Base):
-    """Data storage foundation following Charlie Munger's latticework model"""
+    """Core economic metrics storage model"""
     __tablename__ = 'economic_metrics'
     
     id = sa.Column(sa.Integer, primary_key=True)
@@ -57,21 +51,20 @@ class EconomicData(Base):
     )
 
 class DatabaseManager:
-    """Manages database connections and initialization."""
-    def __init__(self, db_url: str = DB_URL):  # Use configured default
+    """Central database connection handler"""
+    def __init__(self, db_url: str = DB_URL):
         try:
             self.engine = create_engine(db_url,
                                         pool_size=20,
                                         max_overflow=10,
                                         pool_pre_ping=True)
-            self.Session = sessionmaker(bind=self.engine)  # Create session factory
-
+            self.Session = sessionmaker(bind=self.engine)
         except Exception as e:
             logging.error(f"Database connection failed: {e}")
             raise
    
     def initialize_db(self):
-        """Initializes the database by creating all tables."""
+        """Create database schema"""
         try:
             Base.metadata.create_all(self.engine)
             logging.info("Database initialized successfully.")
@@ -81,7 +74,7 @@ class DatabaseManager:
     
     @contextmanager
     def session_scope(self):
-        """Provides a transactional scope for database operations."""
+        """Transactional session management"""
         session = self.Session()
         try:
             yield session
@@ -93,50 +86,43 @@ class DatabaseManager:
         finally:
             session.close()
 
-    # Add to DatabaseManager
     def query_usage_metrics(self):
-        """Track API usage against BLS limits"""
+        """Track API usage limits"""
         with self.session_scope() as session:
             usage = session.query(
-                func.count(EconomicData.metric_date)
+                sa.func.count(EconomicData.metric_date)
             ).scalar()
-            remaining = 500 - usage  # Daily limit
+            remaining = 500 - usage
             logging.info(f"API Quota: {remaining} requests remaining")
 
-
-# Security Configuration (Add after DB_URL)
 BLS_API_KEY = os.getenv("BLS_JOLTS_KEY")
 if not BLS_API_KEY:
     raise ValueError("Set BLS_JOLTS_KEY environment variable")
 
-
 class JOLTSDataFetcher:
-    """Enhanced with BLS API v2.4 compliance and error resilience"""
-    def __init__(self):  # Remove api_config parameter
+    """BLS API data acquisition handler"""
+    def __init__(self):
         self.base_url = "https://api.bls.gov/publicAPI/v2/timeseries/data/"
         self.headers = {'Content-type': 'application/json'}
-        self.api_key = BLS_API_KEY  # Use environment variable directly
+        self.api_key = BLS_API_KEY
 
-        # Validate API key presence
         if not self.api_key:
-            logging.critical("Missing BLS API key in configuration")
+            logging.critical("Missing BLS API key")
             raise ValueError("API key required for BLS access")
 
     def fetch_data(self, start_year: int = None, end_year: int = None) -> Optional[pd.DataFrame]:
-        """Robust data fetching with multiple validation layers"""
+        """Retrieve JOLTS data from BLS API"""
         try:
             today = datetime.today()
-            start_year = start_year or today.year - 10  # BLS default limit
+            start_year = start_year or today.year - 10
             end_year = end_year or today.year
 
-            # Updated JOLTS series ID structure (post-2020)
-            series_id = 'JTS000000000000000JOR'  # Verify against current specs
             payload = {
-                "seriesid": [series_id],
+                "seriesid": ['JTS000000000000000JOR'],
                 "startyear": str(start_year),
                 "endyear": str(end_year),
                 "registrationkey": self.api_key,
-                "aspects": "true"  # New v2.4 parameter
+                "aspects": "true"
             }
 
             response = requests.post(
@@ -154,29 +140,14 @@ class JOLTSDataFetcher:
             return None
 
     def _parse_response(self, raw_data: Dict) -> pd.DataFrame:
-        """Defensive parsing with multiple validation checks"""
+        """Transform API response into structured data"""
         try:
-            # Check API response status first
             if raw_data.get('status') != 'REQUEST_SUCCEEDED':
                 error_msg = raw_data.get('message', ['Unknown error'])[0]
                 logging.error(f"BLS API Error: {error_msg}")
                 return None
 
-            # Process results data
-            results = raw_data.get('Results', {})
-            series_list = results.get('series', [])
-            
-            if not series_list:
-                logging.warning("No series data found in API response")
-                return pd.DataFrame()
-
-            # Validate data structure
-            series_data = series_list[0].get('data', [])
-            if not series_data:
-                logging.info("No records found for given parameters")
-                return pd.DataFrame()
-
-            # Create dataframe with type safety
+            series_data = raw_data.get('Results', {}).get('series', [{}])[0].get('data', [])
             df = pd.DataFrame(series_data).assign(
                 metric_date=lambda x: pd.to_datetime(
                     x['year'] + '-' + x['period'].str[1:] + '-01',
@@ -185,7 +156,6 @@ class JOLTSDataFetcher:
                 job_openings=lambda x: pd.to_numeric(x['value'], errors='coerce')
             )
 
-            # Quality control checks AFTER dataframe creation
             if df['job_openings'].isnull().mean() > 0.2:
                 logging.warning("High null rate in job openings data")
 
@@ -195,39 +165,32 @@ class JOLTSDataFetcher:
             logging.error(f"Data structure mismatch: {e}")
             return None
 
-# Expansion Interface
 class DataPipelinePlugin:
-    """Bill Gates' extensibility pattern"""
+    """Extensible data processing interface"""
     def pre_process(self, data: pd.DataFrame) -> pd.DataFrame:
         return data
         
     def post_process(self, data: pd.DataFrame) -> pd.DataFrame:
         return data
 
-# Implementation
 if __name__ == "__main__":
-    # Initialize database manager
     db_mgr = DatabaseManager()
     db_mgr.initialize_db()
-
-    # Initialize fetcher with environment variable
-    fetcher = JOLTSDataFetcher()  # No config parameter needed
+    fetcher = JOLTSDataFetcher()
 
     with db_mgr.session_scope() as session:
-            # Use SQLAlchemy Core insert with conflict handling
-            from sqlalchemy.dialects.postgresql import insert
+        raw_data = fetcher.fetch_data()
+        if raw_data is not None:
+            stmt = insert(EconomicData.__table__).values(
+                raw_data.to_dict(orient='records')
+            ).on_conflict_do_nothing(
+                index_elements=['metric_date']
+            )
             
-            raw_data = fetcher.fetch_data()
-            if raw_data is not None:
-                stmt = insert(EconomicData.__table__).values(
-                    raw_data.to_dict(orient='records')
-                ).on_conflict_do_nothing(
-                    index_elements=['metric_date']
-                )
-                
-                try:
-                    result = session.execute(stmt)
-                    logging.info(f"Inserted {result.rowcount} new records")
-                except Exception as e:
-                    logging.error(f"Insert error: {str(e)}")
-                    session.rollback()
+            try:
+                result = session.execute(stmt)
+                logging.info(f"Inserted {result.rowcount} new records")
+            except Exception as e:
+                logging.error(f"Insert error: {str(e)}")
+                session.rollback()
+
